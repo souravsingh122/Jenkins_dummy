@@ -1,49 +1,53 @@
-def call(env) {
+def call(Map config = [:]) {
+    def jobName = env.JOB_NAME
+    def buildNumber = env.BUILD_NUMBER
+    def buildStatus = currentBuild.currentResult ?: 'SUCCESS'
+    def buildUrl = env.BUILD_URL
+    def workspace = env.WORKSPACE
+    def logFile = "${workspace}/build.log"
+    def commitId = ''
+    def commitMsg = ''
+    def author = ''
+    def repoUrl = ''
+    def gitDiff = ''
+
     try {
-        // Capture Git commit information
-        def commitAuthor = sh(script: "git log -1 --pretty=format:%an", returnStdout: true).trim()
-        def commitMessage = sh(script: "git log -1 --pretty=format:%s", returnStdout: true).trim()
-        def commitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-        def fullCommitId = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-        def repoUrl = sh(script: "git config --get remote.origin.url", returnStdout: true).trim()
-        
-        // Get git diff for the last commit only
-        def gitDiff = sh(script: "git diff HEAD~1 HEAD", returnStdout: true).trim()
+        dir("${workspace}") {
+            author = sh(script: "git log -1 --pretty=format:%an", returnStdout: true).trim()
+            commitMsg = sh(script: "git log -1 --pretty=format:%s", returnStdout: true).trim()
+            commitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+            repoUrl = sh(script: "git config --get remote.origin.url || echo 'N/A'", returnStdout: true).trim()
+            gitDiff = sh(script: "git diff HEAD~1 HEAD || echo 'No diff available'", returnStdout: true).trim()
+        }
+    } catch (e) {
+        echo "Notification failed: ${e}"
+    }
 
-        // Save full build logs
-        def logFilePath = "${env.WORKSPACE}/build.log"
-        writeFile file: logFilePath, text: currentBuild.rawBuild.getLog().join("\n")
+    // Save build log
+    try {
+        sh "cp ${env.WORKSPACE}@log/../log build.log || echo 'No log found'"
+    } catch (e) {
+        echo "Log copy failed: ${e}"
+    }
 
-        // Email subject
-        def subject = "[Jenkins] ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}"
-
-        // Email body as HTML
-        def body = """
+    emailext (
+        subject: "${buildStatus}: ${jobName} #${buildNumber}",
+        body: """
             <h2>Jenkins Build Notification</h2>
             <ul>
-                <li><strong>Job:</strong> ${env.JOB_NAME}</li>
-                <li><strong>Build Number:</strong> #${env.BUILD_NUMBER}</li>
-                <li><strong>Status:</strong> <b>${currentBuild.currentResult}</b></li>
-                <li><strong>Commit:</strong> <code>${commitId}</code></li>
-                <li><strong>Author:</strong> ${commitAuthor}</li>
-                <li><strong>Message:</strong> ${commitMessage}</li>
-                <li><strong>Repository:</strong> ${repoUrl}</li>
+                <li><b>Job:</b> ${jobName}</li>
+                <li><b>Build:</b> #${buildNumber}</li>
+                <li><b>Status:</b> ${buildStatus}</li>
+                <li><b>Commit ID:</b> ${commitId}</li>
+                <li><b>Message:</b> ${commitMsg}</li>
+                <li><b>Author:</b> ${author}</li>
+                <li><b>Repo:</b> ${repoUrl}</li>
             </ul>
-            <h3>Code Changes:</h3>
-            <pre style="background-color:#f4f4f4;padding:10px;border:1px solid #ccc;white-space:pre-wrap;">${gitDiff}</pre>
-            <hr>
-            <p>Attached is the full build log for details.</p>
-        """
-
-        // Send the email with log file
-        emailext(
-            subject: subject,
-            body: body,
-            mimeType: 'text/html',
-            to: 'sourav.singh@shipease.in',
-            attachmentsPattern: 'build.log'
-        )
-    } catch (err) {
-        echo "Notification failed: ${err.getMessage()}"
-    }
+            <pre><code>${gitDiff}</code></pre>
+            <p>View Build Logs: <a href="${buildUrl}">${buildUrl}</a></p>
+        """,
+        to: 'sourav.singh@shipease.in',
+        mimeType: 'text/html',
+        attachmentsPattern: 'build.log'
+    )
 }
