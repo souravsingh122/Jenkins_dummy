@@ -8,7 +8,11 @@ def call(env, List<String> additionalRecipients = []) {
     def cleanedUrl = gitUrl.replaceAll(/git@github.com:/, 'https://github.com/').replaceAll(/.git$/, '')
     def commitUrl = "${cleanedUrl}/commit/${fullCommitId}"
 
-    def emailParams = [
+    def recipients = (additionalRecipients && !additionalRecipients.isEmpty())
+        ? additionalRecipients.join(',')
+        : '${DEFAULT_RECIPIENTS}'
+
+    emailext(
         subject: "✅ Jenkins Build: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
         body: """
             <p><b>Job:</b> ${env.JOB_NAME}</p>
@@ -20,12 +24,7 @@ def call(env, List<String> additionalRecipients = []) {
             <p><b>View Build:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
         """,
         mimeType: 'text/html',
-        attachLog: true
-    ]
-
-    if (additionalRecipients && !additionalRecipients.isEmpty()) {
-        emailParams.to = additionalRecipients.join(',')
-    }
-
-    emailext(emailParams)
+        attachLog: true,
+        to: recipients
+    )
 }
