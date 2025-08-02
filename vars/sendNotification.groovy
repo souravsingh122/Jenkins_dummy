@@ -1,53 +1,51 @@
-def call(Map config = [:]) {
-    def jobName = env.JOB_NAME
-    def buildNumber = env.BUILD_NUMBER
-    def buildStatus = currentBuild.currentResult ?: 'SUCCESS'
-    def buildUrl = env.BUILD_URL
-    def workspace = env.WORKSPACE
-    def logFile = "${workspace}/build.log"
-    def commitId = ''
-    def commitMsg = ''
-    def author = ''
-    def repoUrl = ''
-    def gitDiff = ''
-
+def call(String logFilePath = "build.log") {
     try {
-        dir("${workspace}") {
-            author = sh(script: "git log -1 --pretty=format:%an", returnStdout: true).trim()
-            commitMsg = sh(script: "git log -1 --pretty=format:%s", returnStdout: true).trim()
-            commitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-            repoUrl = sh(script: "git config --get remote.origin.url || echo 'N/A'", returnStdout: true).trim()
-            gitDiff = sh(script: "git diff HEAD~1 HEAD || echo 'No diff available'", returnStdout: true).trim()
-        }
-    } catch (e) {
-        echo "Notification failed: ${e}"
-    }
+        def commitId = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+        def shortCommitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        def commitMessage = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
+        def commitAuthor = sh(script: 'git log -1 --pretty=format:%an', returnStdout: true).trim()
+        def branchName = sh(script: "git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
+        def repoUrl = sh(script: "git config --get remote.origin.url", returnStdout: true).trim()
+        def buildUser = currentBuild.getBuildCauses()[0]?.userName ?: 'GitHub Webhook or Unknown'
 
-    // Save build log
-    try {
-        sh "cp ${env.WORKSPACE}@log/../log build.log || echo 'No log found'"
-    } catch (e) {
-        echo "Log copy failed: ${e}"
-    }
+        // Generate git diff and save as attachment
+        def gitDiff = sh(script: "git diff HEAD~1 HEAD", returnStdout: true).trim()
+        writeFile file: "git_diff.txt", text: gitDiff
 
-    emailext (
-        subject: "${buildStatus}: ${jobName} #${buildNumber}",
-        body: """
-            <h2>Jenkins Build Notification</h2>
+        // Email body
+        def body = """
+        <html>
+        <body>
+            <h2>🔔 Jenkins Build Notification</h2>
+            <p><b>Job:</b> ${env.JOB_NAME}</p>
+            <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
+            <p><b>Triggered By:</b> ${buildUser}</p>
+            <hr>
+            <p><b>Commit ID:</b> ${commitId}</p>
+            <p><b>Short ID:</b> ${shortCommitId}</p>
+            <p><b>Author:</b> ${commitAuthor}</p>
+            <p><b>Message:</b> ${commitMessage}</p>
+            <p><b>Branch:</b> ${branchName}</p>
+            <p><b>Repository:</b> <a href="${repoUrl}">${repoUrl}</a></p>
+            <hr>
+            <p>📎 Attachments:</p>
             <ul>
-                <li><b>Job:</b> ${jobName}</li>
-                <li><b>Build:</b> #${buildNumber}</li>
-                <li><b>Status:</b> ${buildStatus}</li>
-                <li><b>Commit ID:</b> ${commitId}</li>
-                <li><b>Message:</b> ${commitMsg}</li>
-                <li><b>Author:</b> ${author}</li>
-                <li><b>Repo:</b> ${repoUrl}</li>
+                <li><b>Build Log:</b> ${logFilePath}</li>
+                <li><b>Git Diff:</b> git_diff.txt</li>
             </ul>
-            <pre><code>${gitDiff}</code></pre>
-            <p>View Build Logs: <a href="${buildUrl}">${buildUrl}</a></p>
-        """,
-        to: 'sourav.singh@shipease.in',
-        mimeType: 'text/html',
-        attachmentsPattern: 'build.log'
-    )
+        </body>
+        </html>
+        """
+
+        // Send the email
+        emailext (
+            subject: "Build #${env.BUILD_NUMBER} - ${env.JOB_NAME} [${shortCommitId}]",
+            body: body,
+            mimeType: 'text/html',
+            to: "souravsingh8917@gmail.com,sourav.singh@shipease.in",
+            attachmentsPattern: "${logFilePath},git_diff.txt"
+        )
+    } catch (err) {
+        echo "Notification failed: ${err}"
+    }
 }
