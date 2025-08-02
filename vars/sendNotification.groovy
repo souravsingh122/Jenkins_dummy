@@ -4,13 +4,15 @@ def call(env, List<String> additionalRecipients = []) {
     def commitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
     def fullCommitId = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
 
-    // Auto-detect Git repo origin URL and convert to GitHub link
+    // Build GitHub commit link
     def gitUrl = sh(script: "git config --get remote.origin.url", returnStdout: true).trim()
-    def cleanedUrl = gitUrl.replaceAll(/git@github.com:/, 'https://github.com/').replaceAll(/.git$/, '')
+    def cleanedUrl = gitUrl.replaceAll(/git@github.com:/, 'https://github.com/')
+                            .replaceAll(/\.git$/, '')
     def commitUrl = "${cleanedUrl}/commit/${fullCommitId}"
 
-    // Compose recipient list if needed
-    def recipients = additionalRecipients.join(',') // optional override
+    // Compose recipients: fallback to Jenkins default if none provided
+    def recipients = additionalRecipients.join(',').trim()
+    def finalRecipients = recipients ? recipients : null
 
     emailext(
         subject: "✅ Jenkins Build: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
@@ -24,7 +26,7 @@ def call(env, List<String> additionalRecipients = []) {
             <p><b>View Build:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
         """,
         mimeType: 'text/html',
-        to: recipients ?: null, // if blank, Jenkins default is used
-        attachLog: true // attach full build log
+        to: finalRecipients,
+        attachLog: true
     )
 }
