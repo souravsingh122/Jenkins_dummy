@@ -1,0 +1,17 @@
+@Library('jenkins-shared-lib') _
+
+pipeline {
+    agent any
+    stages {
+        stage('Dummy Work') {
+            steps {
+                echo "Running dummy task"
+            }
+        }
+    }
+    post {
+        always {
+            sendNotification(env)
+        }
+    }
+}
