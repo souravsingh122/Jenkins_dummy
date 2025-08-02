@@ -11,7 +11,7 @@ pipeline {
     }
     post {
         always {
-            sendNotification(env,['souravsingh8917@gmail.com'])
+            sendNotification(env)
         }
     }
 }
