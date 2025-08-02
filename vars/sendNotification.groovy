@@ -1,41 +1,49 @@
 def call(env) {
     try {
-        def subject = sh(script: 'git log -1 --pretty=format:%s', returnStdout: true).trim()
-        def shortCommit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        def fullCommit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-        def branch = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+        // Capture Git commit information
+        def commitAuthor = sh(script: "git log -1 --pretty=format:%an", returnStdout: true).trim()
+        def commitMessage = sh(script: "git log -1 --pretty=format:%s", returnStdout: true).trim()
+        def commitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        def fullCommitId = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+        def repoUrl = sh(script: "git config --get remote.origin.url", returnStdout: true).trim()
+        
+        // Get git diff for the last commit only
+        def gitDiff = sh(script: "git diff HEAD~1 HEAD", returnStdout: true).trim()
 
-        // Dynamically fetch correct remote URL from any remote (origin, sourav, etc.)
-        def gitUrl = sh(
-            script: '''git remote -v | grep fetch | head -n1 | awk '{print $2}' ''',
-            returnStdout: true
-        ).trim()
+        // Save full build logs
+        def logFilePath = "${env.WORKSPACE}/build.log"
+        writeFile file: logFilePath, text: currentBuild.rawBuild.getLog().join("\n")
 
-        // Transform Git URL (support both HTTPS and SSH)
-        if (gitUrl.startsWith("git@")) {
-            gitUrl = gitUrl.replace(":", "/").replaceFirst("git@", "https://")
-        }
-        gitUrl = gitUrl.replace(".git", "")
+        // Email subject
+        def subject = "[Jenkins] ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}"
 
-        def commitLink = "${gitUrl}/commit/${fullCommit}"
-        def branchLink = "${gitUrl}/tree/${branch}"
+        // Email body as HTML
+        def body = """
+            <h2>Jenkins Build Notification</h2>
+            <ul>
+                <li><strong>Job:</strong> ${env.JOB_NAME}</li>
+                <li><strong>Build Number:</strong> #${env.BUILD_NUMBER}</li>
+                <li><strong>Status:</strong> <b>${currentBuild.currentResult}</b></li>
+                <li><strong>Commit:</strong> <code>${commitId}</code></li>
+                <li><strong>Author:</strong> ${commitAuthor}</li>
+                <li><strong>Message:</strong> ${commitMessage}</li>
+                <li><strong>Repository:</strong> ${repoUrl}</li>
+            </ul>
+            <h3>Code Changes:</h3>
+            <pre style="background-color:#f4f4f4;padding:10px;border:1px solid #ccc;white-space:pre-wrap;">${gitDiff}</pre>
+            <hr>
+            <p>Attached is the full build log for details.</p>
+        """
 
+        // Send the email with log file
         emailext(
-            subject: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' - ${currentBuild.currentResult}",
-            body: """
-                <p><b>Job:</b> ${env.JOB_NAME}</p>
-                <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
-                <p><b>Build Status:</b> ${currentBuild.currentResult}</p>
-                <p><b>Branch:</b> <a href="${branchLink}">${branch}</a></p>
-                <p><b>Commit:</b> ${shortCommit}</p>
-                <p><b>Commit Message:</b> ${subject}</p>
-                <p><b>Commit Link:</b> <a href="${commitLink}">${commitLink}</a></p>
-                <p><b>Build Logs:</b> <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>
-            """,
+            subject: subject,
+            body: body,
             mimeType: 'text/html',
-            to: "${env.EMAIL_RECIPIENTS ?: 'souravsingh8917@gmail.com'}"
+            to: 'sourav.singh@shipease.in',
+            attachmentsPattern: 'build.log'
         )
-    } catch (Exception e) {
-        echo "Notification failed: ${e.getMessage()}"
+    } catch (err) {
+        echo "Notification failed: ${err.getMessage()}"
     }
 }
